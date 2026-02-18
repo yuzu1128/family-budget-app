@@ -1,0 +1,17 @@
+app = "family-budget-ydko-01"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  [build.args]
+    VITE_SUPABASE_URL = "https://kzqtvqccaixjxwfklntu.supabase.co"
+    VITE_SUPABASE_ANON_KEY = "sb_publishable_2EnRsPd5avunyncTVCEufA_yMLCv20P"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
