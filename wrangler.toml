@@ -1,0 +1,6 @@
+name = "family-budget-app"
+compatibility_date = "2024-01-01"
+
+[vars]
+VITE_SUPABASE_URL = "https://kzqtvqccaixjxwfklntu.supabase.co"
+VITE_SUPABASE_ANON_KEY = "sb_publishable_2EnRsPd5avunyncTVCEufA_yMLCv20P"
