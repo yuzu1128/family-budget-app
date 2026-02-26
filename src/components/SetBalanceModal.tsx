@@ -42,8 +42,8 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
             // Invert total for display (Negative total in DB means positive balance for user)
             const displayBalance = -total;
 
-            // Default to 'add' if balance is positive, else 'set'
-            setMode(displayBalance > 0 ? 'add' : 'set');
+            // Always default to 'add' mode
+            setMode('add');
 
         } catch (err) {
             console.error('Error fetching balance:', err);
@@ -78,45 +78,37 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
             } else {
                 // "Set Balance" Mode: Force Total Balance to be inputVal.
 
-                // 1. Calculate Total Lifetime Expenses (Positive amounts)
-                const { data: expenses } = await supabase
-                    .from('expenses')
-                    .select('amount')
-                    .eq('household_id', householdId)
-                    .gt('amount', 0); // Expenses only
-
-                let totalLifetimeExpense = 0;
-                if (expenses) {
-                    expenses.forEach(e => totalLifetimeExpense += e.amount);
-                }
-
-                // Balance = -(InitialAsset + OtherIncomes + Expenses)
-                // We want Balance = inputVal.
-                // We are wiping other special entries, so effectively:
-                // inputVal = -(InitialAsset + Expenses)
-                // -inputVal = InitialAsset + Expenses
-                // InitialAsset = -inputVal - Expenses
-                // InitialAsset = -(inputVal + Expenses)
-
-                // Wait, if InitialAsset is stored as Negative:
-                // Balance = -(InitialAsset_stored + Expenses)
-                // inputVal = -InitialAsset_stored - Expenses
-                // InitialAsset_stored = -inputVal - Expenses
-                // InitialAsset_stored = -(inputVal + Expenses)
-
-                const requiredInitialAssetStored = -(inputVal + totalLifetimeExpense);
-
-                // 2. Cleanup old settings
+                // 1. Cleanup old settings first
                 await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '月次予算');
                 await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '資産初期残高');
+                await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '残高追加');
 
-                // 3. Insert new Initial Asset at 2000-01-01
+                // 2. Calculate actual balance from regular transactions (expenses/incomes only)
+                const { data: actualTransactions } = await supabase
+                    .from('expenses')
+                    .select('amount')
+                    .eq('household_id', householdId);
+
+                let actualBalance = 0; // This is the sum of amounts in DB
+                if (actualTransactions) {
+                    actualTransactions.forEach(e => actualBalance += e.amount);
+                }
+
+                // 3. Calculate adjustment needed
+                // Current display balance = -actualBalance
+                // Target display balance = inputVal
+                // So target actual balance = -inputVal
+                // Adjustment = target - actual = -inputVal - actualBalance
+                const targetActualBalance = -inputVal;
+                const adjustmentAmount = targetActualBalance - actualBalance;
+
+                // 4. Insert adjustment as "資産初期残高" at 2000-01-01
                 const { error: insertError } = await supabase
                     .from('expenses')
                     .insert({
                         household_id: householdId,
                         created_by: user.id,
-                        amount: requiredInitialAssetStored,
+                        amount: adjustmentAmount,
                         description: '資産初期残高',
                         transaction_date: '2000-01-01',
                     });
