@@ -39,9 +39,6 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
                 total += e.amount;
             });
 
-            // Invert total for display (Negative total in DB means positive balance for user)
-            const displayBalance = -total;
-
             // Always default to 'add' mode
             setMode('add');
 
