@@ -14,3 +14,15 @@ migrations_dir = "migrations"
 binding = "RECEIPTS"
 bucket_name = "family-budget-app-receipts"
 preview_bucket_name = "family-budget-app-receipts"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "family-budget-app-preview"
+database_id = "d52ed3a8-e957-45da-a1af-0668d4924365"
+preview_database_id = "d52ed3a8-e957-45da-a1af-0668d4924365"
+migrations_dir = "migrations"
+
+[[env.preview.r2_buckets]]
+binding = "RECEIPTS"
+bucket_name = "family-budget-app-preview-receipts"
+preview_bucket_name = "family-budget-app-preview-receipts"
