@@ -1,6 +1,16 @@
+"$schema" = "./node_modules/wrangler/config-schema.json"
 name = "family-budget-app"
-compatibility_date = "2024-01-01"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-04-22"
 
-[vars]
-VITE_SUPABASE_URL = "https://kzqtvqccaixjxwfklntu.supabase.co"
-VITE_SUPABASE_ANON_KEY = "sb_publishable_2EnRsPd5avunyncTVCEufA_yMLCv20P"
+[[d1_databases]]
+binding = "DB"
+database_name = "family-budget-app"
+database_id = "ad522aa0-3103-4b10-b856-9dfd961a2b9e"
+preview_database_id = "ad522aa0-3103-4b10-b856-9dfd961a2b9e"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "RECEIPTS"
+bucket_name = "family-budget-app-receipts"
+preview_bucket_name = "family-budget-app-receipts"

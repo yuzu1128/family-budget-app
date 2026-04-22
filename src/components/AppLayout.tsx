@@ -4,7 +4,7 @@ import { LogOut, PieChart } from 'lucide-react';
 import MobileBottomNav from './MobileBottomNav';
 
 export default function AppLayout() {
-    const { session, signOut } = useAuth();
+    const { session, signOut, error } = useAuth();
     const location = useLocation();
 
     if (!session) {
@@ -37,6 +37,11 @@ export default function AppLayout() {
             </nav>
 
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+                {error && (
+                    <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {error}
+                    </div>
+                )}
                 <Outlet />
             </main>
 

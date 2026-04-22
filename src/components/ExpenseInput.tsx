@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
 import { Plus, Upload } from 'lucide-react';
+import { apiClient, getErrorMessage } from '../lib/api-client';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ExpenseInputProps {
     householdId: string;
@@ -21,49 +21,20 @@ export default function ExpenseInput({ householdId, onExpenseAdded }: ExpenseInp
         if (!user) return;
         setLoading(true);
 
-        let receiptUrl = null;
-        let receiptPath = null;
-
         try {
-            if (file) {
-                const fileExt = file.name.split('.').pop();
-                const fileName = `${Math.random()}.${fileExt}`;
-                const filePath = `${householdId}/${fileName}`;
-
-                const { error: uploadError } = await supabase.storage
-                    .from('receipts')
-                    .upload(filePath, file);
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('receipts')
-                    .getPublicUrl(filePath);
-
-                receiptUrl = publicUrl;
-                receiptPath = filePath;
-            }
-
-            const { error } = await supabase.from('expenses').insert({
-                household_id: householdId,
-                created_by: user.id,
-                amount: parseInt(amount),
+            await apiClient.expenses.create(householdId, {
+                amount: Number.parseInt(amount, 10),
                 description,
-                transaction_date: date,
-                receipt_url: receiptUrl,
-                receipt_path: receiptPath
+                transactionDate: date,
+                receipt: file,
             });
-
-            if (error) throw error;
 
             setAmount('');
             setDescription('');
             setFile(null);
             onExpenseAdded();
-
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            alert('Error: ' + message);
+        } catch (error) {
+            alert(getErrorMessage(error, '支出の追加に失敗しました。'));
         } finally {
             setLoading(false);
         }

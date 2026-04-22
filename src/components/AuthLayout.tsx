@@ -2,7 +2,7 @@ import { Outlet, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function AuthLayout() {
-    const { session } = useAuth();
+    const { session, error } = useAuth();
     const location = useLocation();
     const from = location.state?.from
         ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
@@ -22,6 +22,11 @@ export default function AuthLayout() {
 
             <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
                 <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+                    {error && (
+                        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            {error}
+                        </div>
+                    )}
                     <Outlet />
                 </div>
             </div>

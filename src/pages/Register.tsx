@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { UserPlus } from 'lucide-react';
+import { getErrorMessage } from '../lib/api-client';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Register() {
     const [userId, setUserId] = useState('');
@@ -12,72 +13,28 @@ export default function Register() {
 
     const location = useLocation();
     const navigate = useNavigate();
+    const { register } = useAuth();
     const from = location.state?.from
-        ? (location.state.from.pathname + (location.state.from.search || ''))
-        : "/";
-
-    const DUMMY_DOMAIN = '@familybudget.com';
+        ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
+        : '/';
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        const email = `${userId}${DUMMY_DOMAIN}`;
-
-        const { data, error: signUpError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    full_name: fullName,
-                },
-            },
-        });
-
-        if (signUpError) {
-            // Translate common errors
-            if (signUpError.message.includes('User already registered') || signUpError.message.includes('already been registered')) {
-                setError('そのIDは既に使用されています。');
-            } else if (signUpError.message.includes('valid email')) {
-                // Fallback for email validation error (though acceptable domain should fix this)
-                setError('IDに使用できない文字が含まれている可能性があります。');
-            } else {
-                setError(signUpError.message);
-            }
-            setLoading(false);
-            return;
-        }
-
-        // Auto-login: Check session or explicitly sign in
-        let session = data.session;
-        let signInErrorMessage = '';
-
-        if (!session) {
-            // Try explicit sign in
-            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-            if (!signInError && signInData.session) {
-                session = signInData.session;
-            } else {
-                signInErrorMessage = signInError?.message || '';
-            }
-        }
-
-        if (session) {
+        try {
+            await register(userId, password, fullName);
             navigate(from, { replace: true });
-        } else {
-            // If still no session, likely email confirmation is enforced on server
-            setError(`登録は完了しましたが、自動ログインに失敗しました (${signInErrorMessage || '不明な理由'})。Supabaseの「Confirm email」設定がOFFであることを確認してください。`);
+        } catch (registerError) {
+            setError(getErrorMessage(registerError, '登録に失敗しました。'));
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        // Only allow alphanumeric
         if (/^[a-zA-Z0-9]*$/.test(val)) {
             setUserId(val);
         }

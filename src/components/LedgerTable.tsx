@@ -1,22 +1,10 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { format, startOfMonth, endOfMonth, addMonths, subMonths, parseISO } from 'date-fns';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import { format, addMonths, subMonths, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { apiClient, getErrorMessage } from '../lib/api-client';
+import type { LedgerExpense } from '../lib/api-types';
 import { useAuth } from '../contexts/AuthContext';
-
-interface Expense {
-    id: string;
-    amount: number;
-    description: string;
-    transaction_date: string;
-    receipt_url?: string;
-    receipt_path?: string;
-    created_at?: string;
-    profiles: {
-        full_name: string;
-    };
-}
 
 interface LedgerTableProps {
     householdId: string;
@@ -26,136 +14,72 @@ interface LedgerTableProps {
 
 export default function LedgerTable({ householdId, lastUpdate, onUpdate }: LedgerTableProps) {
     const { user } = useAuth();
-    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [expenses, setExpenses] = useState<LedgerExpense[]>([]);
     const [loading, setLoading] = useState(true);
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [previousBalance, setPreviousBalance] = useState(0);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-    // Inline Editing State
     const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
     const [editDescription, setEditDescription] = useState('');
     const [editAmount, setEditAmount] = useState('');
     const [editDate, setEditDate] = useState('');
     const [editFile, setEditFile] = useState<File | null>(null);
     const [editLoading, setEditLoading] = useState(false);
-
-    // Inline Input State
     const [inputDate, setInputDate] = useState(new Date().toISOString().split('T')[0]);
     const [inputExpense, setInputExpense] = useState('');
     const [inputFile, setInputFile] = useState<File | null>(null);
     const [inputLoading, setInputLoading] = useState(false);
 
-    const fetchData = async () => {
+    const monthKey = format(currentMonth, 'yyyy-MM');
+
+    const fetchData = useCallback(async () => {
         setLoading(true);
-        // Use local date strings `yyyy-MM-dd` to avoid UTC shifts
-        const start = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-        // Calculate end of month - use the first day of NEXT month for exclusive comparison roughly?
-        // Or just matching endOfMonth string 
-        const end = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
-
-        // 1. Get Previous Balance (Sum of all transactions BEFORE this month start date)
-        const { data: prevData, error: prevError } = await supabase
-            .from('expenses')
-            .select('amount')
-            .eq('household_id', householdId)
-            .lt('transaction_date', start);
-
-        let prevBal = 0;
-        if (!prevError && prevData) {
-            prevData.forEach(p => {
-                prevBal -= p.amount;
-            });
+        try {
+            const { previousBalance: openingBalance, expenses: ledgerExpenses } = await apiClient.households.getLedger(householdId, monthKey);
+            setPreviousBalance(openingBalance);
+            setExpenses(ledgerExpenses);
+        } catch (error) {
+            console.error('Failed to fetch ledger:', error);
+            setPreviousBalance(0);
+            setExpenses([]);
+        } finally {
+            setLoading(false);
         }
-        setPreviousBalance(prevBal);
-
-        // 2. Get Current Month Transactions
-        const { data: expenseData, error } = await supabase
-            .from('expenses')
-            .select(`
-                id,
-                amount,
-                description,
-                transaction_date,
-                receipt_url,
-                receipt_path,
-                created_at,
-                profiles (full_name)
-            `)
-            .eq('household_id', householdId)
-            .gte('transaction_date', start)
-            .lte('transaction_date', end)
-            .order('transaction_date', { ascending: true })
-            .order('created_at', { ascending: true });
-
-        if (!error) {
-            // @ts-expect-error Supabase types mismatch with local interface
-            setExpenses(expenseData || []);
-        }
-        setLoading(false);
-    };
+    }, [householdId, monthKey]);
 
     useEffect(() => {
-        fetchData();
-    }, [householdId, lastUpdate, currentMonth]);
+        void fetchData();
+    }, [fetchData, lastUpdate]);
 
     const handleAddFromRow = async () => {
         if (!user) return;
 
-        let amount = 0;
+        if (!inputExpense) {
+            alert('金額を入力してください');
+            return;
+        }
 
-        if (inputExpense) {
-            amount = Math.abs(parseInt(inputExpense));
-        } else {
+        const amount = Math.abs(Number.parseInt(inputExpense, 10));
+        if (Number.isNaN(amount)) {
             alert('金額を入力してください');
             return;
         }
 
         setInputLoading(true);
         try {
-            let receiptUrl = null;
-            let receiptPath = null;
-
-            if (inputFile) {
-                const fileExt = inputFile.name.split('.').pop();
-                const fileName = `${Math.random()}.${fileExt}`;
-                const filePath = `${householdId}/${fileName}`;
-
-                const { error: uploadError } = await supabase.storage
-                    .from('receipts')
-                    .upload(filePath, inputFile);
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('receipts')
-                    .getPublicUrl(filePath);
-
-                receiptUrl = publicUrl;
-                receiptPath = filePath;
-            }
-
-            const { error } = await supabase.from('expenses').insert({
-                household_id: householdId,
-                created_by: user.id,
-                amount: amount,
-                description: '', // Intentionally empty
-                transaction_date: inputDate,
-                receipt_url: receiptUrl,
-                receipt_path: receiptPath
+            await apiClient.expenses.create(householdId, {
+                amount,
+                description: '',
+                transactionDate: inputDate,
+                receipt: inputFile,
             });
 
-            if (error) throw error;
-
-            // Reset Input
             setInputExpense('');
             setInputFile(null);
-
-            fetchData();
+            await fetchData();
             onUpdate();
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            alert('Error: ' + message);
+        } catch (error) {
+            alert(getErrorMessage(error, '追加に失敗しました。'));
         } finally {
             setInputLoading(false);
         }
@@ -164,16 +88,17 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
     const handlePrevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
     const handleNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
 
-    const handleRowClick = (expense: any) => {
+    const handleRowClick = (expense: LedgerExpense) => {
         if (expandedRowId === expense.id) {
             setExpandedRowId(null);
-        } else {
-            setExpandedRowId(expense.id);
-            setEditDescription(expense.description || '');
-            setEditAmount(Math.abs(expense.amount).toString());
-            setEditDate(expense.transaction_date.split('T')[0]);
-            setEditFile(null);
+            return;
         }
+
+        setExpandedRowId(expense.id);
+        setEditDescription(expense.description || '');
+        setEditAmount(Math.abs(expense.amount).toString());
+        setEditDate(expense.transactionDate.split('T')[0]);
+        setEditFile(null);
     };
 
     const handleUpdate = async () => {
@@ -181,92 +106,57 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
         setEditLoading(true);
 
         try {
-            const val = parseInt(editAmount);
-            if (isNaN(val)) throw new Error('Invalid Amount');
+            const originalRow = expenses.find((expense) => expense.id === expandedRowId);
+            if (!originalRow) throw new Error('更新対象が見つかりません。');
 
-            const originalRow = expenses.find(e => e.id === expandedRowId);
-            const isOriginalIncome = originalRow && originalRow.amount < 0;
-            const finalAmount = isOriginalIncome ? -Math.abs(val) : Math.abs(val);
+            const inputAmount = Number.parseInt(editAmount, 10);
+            if (Number.isNaN(inputAmount)) throw new Error('Invalid Amount');
 
-            // Handle File Upload if selected
-            let receiptUpdates = {};
-            if (editFile) {
-                const fileExt = editFile.name.split('.').pop();
-                const fileName = `${Math.random()}.${fileExt}`;
-                const filePath = `${householdId}/${fileName}`;
+            const finalAmount = originalRow.amount < 0
+                ? -Math.abs(inputAmount)
+                : Math.abs(inputAmount);
 
-                const { error: uploadError } = await supabase.storage
-                    .from('receipts')
-                    .upload(filePath, editFile);
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage
-                    .from('receipts')
-                    .getPublicUrl(filePath);
-
-                receiptUpdates = {
-                    receipt_url: publicUrl,
-                    receipt_path: filePath
-                };
-            }
-
-            const { error } = await supabase
-                .from('expenses')
-                .update({
-                    description: editDescription,
-                    amount: finalAmount,
-                    transaction_date: editDate,
-                    ...receiptUpdates
-                })
-                .eq('id', expandedRowId);
-
-            if (error) throw error;
+            await apiClient.expenses.update(expandedRowId, {
+                description: editDescription,
+                amount: finalAmount,
+                transactionDate: editDate,
+                receipt: editFile,
+            });
 
             setExpandedRowId(null);
             onUpdate();
-            fetchData();
-
-        } catch (e: any) {
-            alert('Update failed: ' + e.message);
+            await fetchData();
+        } catch (error) {
+            alert(getErrorMessage(error, '更新に失敗しました。'));
         } finally {
             setEditLoading(false);
         }
     };
 
     const handleDelete = async () => {
-        if (!expandedRowId || !confirm('この履歴を削除しますか？')) return;
+        if (!expandedRowId || !window.confirm('この履歴を削除しますか？')) return;
         setEditLoading(true);
 
         try {
-            const { error } = await supabase
-                .from('expenses')
-                .delete()
-                .eq('id', expandedRowId);
-
-            if (error) throw error;
-
+            await apiClient.expenses.delete(expandedRowId);
             setExpandedRowId(null);
             onUpdate();
-            fetchData();
-        } catch (e: any) {
-            alert('Delete failed: ' + e.message);
+            await fetchData();
+        } catch (error) {
+            alert(getErrorMessage(error, '削除に失敗しました。'));
         } finally {
             setEditLoading(false);
         }
     };
 
-    // Calculate Totals and Running Balance
     let runningBalance = previousBalance;
-    let totalIncome = 0;
     let totalExpense = 0;
 
-    const rows = expenses.map(expense => {
+    const rows = expenses.map((expense) => {
         const isIncome = expense.amount < 0;
         const absAmount = Math.abs(expense.amount);
 
         if (isIncome) {
-            totalIncome += absAmount;
             runningBalance += absAmount;
         } else {
             totalExpense += absAmount;
@@ -277,7 +167,7 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
             ...expense,
             isIncome,
             absAmount,
-            currentBalance: runningBalance
+            currentBalance: runningBalance,
         };
     });
 
@@ -285,7 +175,6 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
 
     return (
         <div className="bg-white shadow-sm border-t border-gray-100 mb-20">
-            {/* Header */}
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between sticky top-0 z-20">
                 <button onClick={handlePrevMonth} className="p-1 text-gray-600">
                     <ChevronLeft className="h-6 w-6" />
@@ -298,7 +187,6 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                 </button>
             </div>
 
-            {/* Table Area - Scrollable for mobile */}
             <div className="w-full overflow-x-auto">
                 <table className="w-full text-xs min-w-[350px]">
                     <thead className="bg-gray-100 text-gray-600 sticky top-0 z-10 border-b border-gray-300">
@@ -307,11 +195,10 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                             <th className="py-2 px-2 text-right">支出</th>
                             <th className="py-2 px-2 text-right w-[100px] text-gray-400">残高</th>
                             <th className="py-2 px-2 text-center w-[50px] whitespace-nowrap">レシート</th>
-                            <th className="py-2 px-2 w-[40px]"></th> {/* Actions */}
+                            <th className="py-2 px-2 w-[40px]"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 text-gray-800">
-                        {/* Input Row */}
                         <tr className="bg-indigo-50/50">
                             <td className="p-1">
                                 <input
@@ -328,12 +215,10 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                     onChange={(e) => setInputExpense(e.target.value)}
                                     placeholder="0"
                                     className="w-full text-xs p-1 border border-gray-300 rounded text-right bg-white text-red-700 font-bold"
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddFromRow()}
+                                    onKeyDown={(e) => e.key === 'Enter' && void handleAddFromRow()}
                                 />
                             </td>
-                            <td className="p-1 text-center text-gray-400">
-                                -
-                            </td>
+                            <td className="p-1 text-center text-gray-400">-</td>
                             <td className="p-1 text-center">
                                 <label className={`
                                     block w-full h-8 border-2 border-dashed rounded cursor-pointer transition-colors flex items-center justify-center
@@ -354,7 +239,7 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                             </td>
                             <td className="p-1 text-center">
                                 <button
-                                    onClick={handleAddFromRow}
+                                    onClick={() => void handleAddFromRow()}
                                     disabled={inputLoading}
                                     className="w-full h-full bg-indigo-600 text-white rounded flex items-center justify-center p-1 shadow-sm active:bg-indigo-700 disabled:opacity-50 font-bold text-xs"
                                 >
@@ -370,13 +255,13 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                         )}
 
                         {rows.map((row) => (
-                            <>
+                            <Fragment key={row.id}>
                                 <tr
                                     onClick={() => handleRowClick(row)}
                                     className={`transition-colors cursor-pointer ${expandedRowId === row.id ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
                                 >
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        {format(parseISO(row.transaction_date), 'yyyy/MM/dd')}
+                                        {format(parseISO(row.transactionDate), 'yyyy/MM/dd')}
                                     </td>
                                     <td className={`px-4 py-4 whitespace-nowrap text-sm text-right font-bold ${row.isIncome ? 'text-green-600' : 'text-red-700'}`}>
                                         {row.isIncome ? '+' : ''}{row.absAmount.toLocaleString()}
@@ -385,11 +270,11 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                         {row.currentBalance.toLocaleString()}
                                     </td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-center">
-                                        {row.receipt_url ? (
+                                        {row.receiptUrl ? (
                                             <button
                                                 onClick={(e) => {
-                                                    e.stopPropagation(); // Don't trigger expand
-                                                    setPreviewImage(row.receipt_url || null);
+                                                    e.stopPropagation();
+                                                    setPreviewImage(row.receiptUrl);
                                                 }}
                                                 className="focus:outline-none hover:opacity-75 transition-opacity"
                                             >
@@ -403,7 +288,6 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                     </td>
                                     <td className="px-4 py-4"></td>
                                 </tr>
-                                {/* Expanded Row Content */}
                                 {expandedRowId === row.id && (
                                     <tr className="bg-indigo-50">
                                         <td colSpan={5} className="px-4 pb-4 pt-0">
@@ -455,7 +339,10 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                                 </div>
                                                 <div className="flex justify-between pt-2">
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void handleDelete();
+                                                        }}
                                                         disabled={editLoading}
                                                         className="px-3 py-1.5 bg-red-50 text-red-600 rounded text-xs font-bold hover:bg-red-100 transition-colors"
                                                     >
@@ -463,13 +350,19 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                                     </button>
                                                     <div className="flex space-x-2">
                                                         <button
-                                                            onClick={(e) => { e.stopPropagation(); setExpandedRowId(null); }}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setExpandedRowId(null);
+                                                            }}
                                                             className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-bold hover:bg-gray-200 transition-colors"
                                                         >
                                                             キャンセル
                                                         </button>
                                                         <button
-                                                            onClick={(e) => { e.stopPropagation(); handleUpdate(); }}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void handleUpdate();
+                                                            }}
                                                             disabled={editLoading}
                                                             className="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-bold hover:bg-indigo-700 transition-colors"
                                                         >
@@ -481,10 +374,9 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                                         </td>
                                     </tr>
                                 )}
-                            </>
+                            </Fragment>
                         ))}
 
-                        {/* Footer Totals */}
                         <tr className="bg-gray-50 font-bold border-t-2 border-gray-300 text-[11px]">
                             <td className="py-2 px-2 text-center">計</td>
                             <td className="py-2 px-2 text-right text-red-700">{totalExpense.toLocaleString()}</td>
@@ -496,7 +388,6 @@ export default function LedgerTable({ householdId, lastUpdate, onUpdate }: Ledge
                 </table>
             </div>
 
-            {/* Receipt Preview Overlay */}
             {previewImage && (
                 <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
                     <button

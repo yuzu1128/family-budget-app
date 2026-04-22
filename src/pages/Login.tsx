@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { PieChart } from 'lucide-react';
+import { getErrorMessage } from '../lib/api-client';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { signIn } = useAuth();
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -14,31 +16,23 @@ export default function Login() {
         ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
         : '/';
 
-    const DUMMY_DOMAIN = '@familybudget.com';
-
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        const email = `${userId}${DUMMY_DOMAIN}`;
-
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-
-        if (error) {
-            setError(error.message);
-        } else if (data.session) {
+        try {
+            await signIn(userId, password);
             navigate(from, { replace: true });
+        } catch (loginError) {
+            setError(getErrorMessage(loginError, 'ログインに失敗しました。'));
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        // Only allow alphanumeric
         if (/^[a-zA-Z0-9]*$/.test(val)) {
             setUserId(val);
         }
@@ -57,7 +51,7 @@ export default function Login() {
                     アカウントをお持ちでない方は{' '}
                     <Link
                         to="/register"
-                        state={location.state} // Preserve the 'from' state
+                        state={location.state}
                         className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
                     >
                         新規アカウント作成

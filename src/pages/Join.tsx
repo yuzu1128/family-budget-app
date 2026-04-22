@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { Users, AlertCircle } from 'lucide-react';
+import { apiClient, getErrorMessage } from '../lib/api-client';
 import { useAuth } from '../contexts/AuthContext';
 import { useHousehold } from '../contexts/HouseholdContext';
-import { Users, AlertCircle } from 'lucide-react';
 
 export default function Join() {
     const [searchParams] = useSearchParams();
@@ -24,62 +24,38 @@ export default function Join() {
             return;
         }
 
+        const inviteToken = token;
+
         async function checkHousehold() {
             setLoading(true);
-            const { data, error } = await supabase
-                .from('households')
-                .select('name')
-                .eq('id', token)
-                .single();
-
-            if (error || !data) {
-                setError('家計簿が見つかりませんでした');
-            } else {
-                setHouseholdName(data.name);
+            try {
+                const { household } = await apiClient.households.getInvite(inviteToken);
+                setHouseholdName(household.name);
+                setError(null);
+            } catch (inviteError) {
+                setError(getErrorMessage(inviteError, '家計簿が見つかりませんでした'));
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         }
 
-        checkHousehold();
+        void checkHousehold();
     }, [token]);
 
     const handleJoin = async () => {
-        if (!user || !token) return;
+        if (!user || !token) {
+            navigate('/login', { state: { from: { pathname: '/join', search: `?token=${token ?? ''}` } } });
+            return;
+        }
+
         setJoining(true);
         try {
-            // Check if already a member
-            const { data: existing } = await supabase
-                .from('household_members')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('household_id', token)
-                .single();
-
-            if (existing) {
-                await refreshHouseholds();
-                setCurrentHouseholdId(token);
-                navigate('/');
-                return;
-            }
-
-            const { error } = await supabase
-                .from('household_members')
-                .insert({
-                    user_id: user.id,
-                    household_id: token,
-                    role: 'member'
-                });
-
-            if (error) throw error;
-
+            const { household } = await apiClient.households.join(token);
             await refreshHouseholds();
-            setCurrentHouseholdId(token);
+            setCurrentHouseholdId(household.id);
             navigate('/');
-
-        } catch (err: unknown) {
-            console.error(err);
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            setError('参加に失敗しました: ' + message);
+        } catch (joinError) {
+            setError(getErrorMessage(joinError, '参加に失敗しました。'));
         } finally {
             setJoining(false);
         }

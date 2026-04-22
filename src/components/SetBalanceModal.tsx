@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
 import { X } from 'lucide-react';
-
+import { apiClient, getErrorMessage } from '../lib/api-client';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SetBalanceModalProps {
     isOpen: boolean;
@@ -15,37 +14,14 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
     const { user } = useAuth();
     const [amount, setAmount] = useState('');
     const [loading, setLoading] = useState(false);
-    const [mode, setMode] = useState<'add' | 'set'>('set');
+    const [mode, setMode] = useState<'add' | 'set'>('add');
 
-    // Fetch balance when modal opens
     useEffect(() => {
         if (isOpen && user) {
-            fetchCurrentBalance();
+            setMode('add');
             setAmount('');
         }
     }, [isOpen, user, householdId]);
-
-    const fetchCurrentBalance = async () => {
-        try {
-            const { data, error } = await supabase
-                .from('expenses')
-                .select('amount')
-                .eq('household_id', householdId);
-
-            if (error) throw error;
-
-            let total = 0;
-            data?.forEach(e => {
-                total += e.amount;
-            });
-
-            // Always default to 'add' mode
-            setMode('add');
-
-        } catch (err) {
-            console.error('Error fetching balance:', err);
-        }
-    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -53,72 +29,14 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
         setLoading(true);
 
         try {
-            const inputVal = parseInt(amount);
-            if (isNaN(inputVal)) throw new Error('有効な数値を入力してください');
+            const inputVal = Number.parseInt(amount, 10);
+            if (Number.isNaN(inputVal)) throw new Error('有効な数値を入力してください');
 
-            if (mode === 'add') {
-                // "Add Balance" Mode: Add to existing balance.
-                // We want to increase the Balance.
-                // Since Balance = -(Sum of amounts), and Income is Negative.
-                // To Increase Balance by X, we need to add an Income of X.
-                // So we insert -X.
-
-                const { error } = await supabase.from('expenses').insert({
-                    household_id: householdId,
-                    created_by: user.id,
-                    amount: -Math.abs(inputVal), // Ensure it is negative (Income)
-                    description: '残高追加',
-                    transaction_date: '2000-01-01', // Apply to past to affect current balance immediately
-                });
-                if (error) throw error;
-
-            } else {
-                // "Set Balance" Mode: Force Total Balance to be inputVal.
-
-                // 1. Cleanup old settings first
-                await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '月次予算');
-                await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '資産初期残高');
-                await supabase.from('expenses').delete().eq('household_id', householdId).eq('description', '残高追加');
-
-                // 2. Calculate actual balance from regular transactions (expenses/incomes only)
-                const { data: actualTransactions } = await supabase
-                    .from('expenses')
-                    .select('amount')
-                    .eq('household_id', householdId);
-
-                let actualBalance = 0; // This is the sum of amounts in DB
-                if (actualTransactions) {
-                    actualTransactions.forEach(e => actualBalance += e.amount);
-                }
-
-                // 3. Calculate adjustment needed
-                // Current display balance = -actualBalance
-                // Target display balance = inputVal
-                // So target actual balance = -inputVal
-                // Adjustment = target - actual = -inputVal - actualBalance
-                const targetActualBalance = -inputVal;
-                const adjustmentAmount = targetActualBalance - actualBalance;
-
-                // 4. Insert adjustment as "資産初期残高" at 2000-01-01
-                const { error: insertError } = await supabase
-                    .from('expenses')
-                    .insert({
-                        household_id: householdId,
-                        created_by: user.id,
-                        amount: adjustmentAmount,
-                        description: '資産初期残高',
-                        transaction_date: '2000-01-01',
-                    });
-
-                if (insertError) throw insertError;
-            }
-
+            await apiClient.households.adjustBalance(householdId, mode, inputVal);
             onBalanceSet();
             onClose();
-
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            alert('Error: ' + message);
+        } catch (error) {
+            alert(getErrorMessage(error, '残高の更新に失敗しました。'));
         } finally {
             setLoading(false);
         }
@@ -142,7 +60,6 @@ export default function SetBalanceModal({ isOpen, onClose, householdId, onBalanc
                             </button>
                         </div>
 
-                        {/* Mode Toggle */}
                         <div className="flex justify-center mb-4">
                             <div className="bg-gray-100 p-1 rounded-lg flex">
                                 <button

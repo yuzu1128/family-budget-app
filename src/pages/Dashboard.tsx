@@ -1,40 +1,28 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Users } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import { useHousehold } from '../contexts/HouseholdContext';
+import { apiClient, getErrorMessage } from '../lib/api-client';
+import type { HouseholdSummary } from '../lib/api-types';
 import LedgerTable from '../components/LedgerTable';
 import DashboardSummary from '../components/DashboardSummary';
-
-
-
 import SetBalanceModal from '../components/SetBalanceModal';
 
-interface Household {
-    id: string;
-    name: string;
-    role: 'owner' | 'member';
-}
-
 export default function Dashboard() {
+    const navigate = useNavigate();
     const { user } = useAuth();
-    const { currentHouseholdId, refreshHouseholds } = useHousehold();
-    const [household, setHousehold] = useState<Household | null>(null);
+    const { currentHouseholdId, refreshHouseholds, setCurrentHouseholdId } = useHousehold();
+    const [household, setHousehold] = useState<HouseholdSummary | null>(null);
     const [loading, setLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [newHouseholdName, setNewHouseholdName] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [updateTrigger, setUpdateTrigger] = useState(0);
-
-    // Modal State
     const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
 
     const handleExpenseAdded = () => {
-        setUpdateTrigger(prev => prev + 1);
-    };
-
-    const handleBalanceClick = () => {
-        setIsBalanceModalOpen(true);
+        setUpdateTrigger((prev) => prev + 1);
     };
 
     useEffect(() => {
@@ -46,36 +34,20 @@ export default function Dashboard() {
             }
 
             setLoading(true);
-            const { data, error } = await supabase
-                .from('household_members')
-                .select(`
-          role,
-          households (
-            id,
-            name
-          )
-        `)
-                .eq('user_id', user.id)
-                .eq('household_id', currentHouseholdId)
-                .single();
-
-            if (error) {
-                console.error('Error fetching household:', error);
+            try {
+                const { household: currentHousehold } = await apiClient.households.get(currentHouseholdId);
+                setHousehold(currentHousehold);
+                setError(null);
+            } catch (fetchError) {
+                setHousehold(null);
+                setError(getErrorMessage(fetchError, '家計簿の読み込みに失敗しました。'));
+            } finally {
+                setLoading(false);
             }
-
-            if (data && data.households) {
-                const h = Array.isArray(data.households) ? data.households[0] : data.households;
-                setHousehold({
-                    id: h.id,
-                    name: h.name,
-                    role: data.role as 'owner' | 'member'
-                });
-            }
-            setLoading(false);
         }
 
-        fetchHousehold();
-    }, [user, currentHouseholdId]);
+        void fetchHousehold();
+    }, [currentHouseholdId, user]);
 
     const handleCreateHousehold = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -85,22 +57,14 @@ export default function Dashboard() {
         setError(null);
 
         try {
-            // Use RPC call to handle transaction safely on the server
-            const { data, error } = await supabase
-                .rpc('create_household', { name: newHouseholdName });
-
-            if (error) throw error;
-
-            if (data) {
-                setHousehold(data);
-                setIsCreating(false);
-                await refreshHouseholds();
-            }
-
-        } catch (err: unknown) {
-            console.error('Failed to create household:', err);
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            setError(message || 'Failed to create household');
+            const { household: createdHousehold } = await apiClient.households.create(newHouseholdName.trim());
+            setHousehold(createdHousehold);
+            setCurrentHouseholdId(createdHousehold.id);
+            setNewHouseholdName('');
+            setIsCreating(false);
+            await refreshHouseholds();
+        } catch (createError) {
+            setError(getErrorMessage(createError, '家計簿の作成に失敗しました。'));
         } finally {
             setLoading(false);
         }
@@ -118,7 +82,7 @@ export default function Dashboard() {
                         家計簿へようこそ
                     </h2>
                     <p className="mt-4 text-lg text-gray-500">
-                        まだ家計簿グループに参加していません。新しく作成して始めましょう！
+                        まだ家計簿グループに参加していません。新しく作成して始めましょう。
                     </p>
                 </div>
 
@@ -169,6 +133,7 @@ export default function Dashboard() {
                             家計簿を作成
                         </button>
                         <button
+                            onClick={() => navigate('/settings')}
                             className="inline-flex items-center px-6 py-3 border border-gray-300 text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                         >
                             <Users className="mr-2 h-5 w-5" />
@@ -198,15 +163,19 @@ export default function Dashboard() {
                 </div>
             </div>
 
+            {error && (
+                <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {error}
+                </div>
+            )}
+
             <DashboardSummary
                 householdId={household.id}
                 lastUpdate={updateTrigger}
-                onBalanceClick={handleBalanceClick}
+                onBalanceClick={() => setIsBalanceModalOpen(true)}
             />
 
             <LedgerTable householdId={household.id} lastUpdate={updateTrigger} onUpdate={handleExpenseAdded} />
-
-
 
             <SetBalanceModal
                 isOpen={isBalanceModalOpen}
@@ -214,8 +183,6 @@ export default function Dashboard() {
                 householdId={household.id}
                 onBalanceSet={handleExpenseAdded}
             />
-
-
         </div>
     );
 }

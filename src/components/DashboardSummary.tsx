@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { endOfMonth } from 'date-fns';
+import { format } from 'date-fns';
+import { apiClient } from '../lib/api-client';
 
 interface DashboardSummaryProps {
     householdId: string;
@@ -16,38 +16,22 @@ export default function DashboardSummary({ householdId, lastUpdate, onBalanceCli
     useEffect(() => {
         async function fetchSummary() {
             setLoading(true);
-            const now = new Date();
-            const lastDay = endOfMonth(now).toISOString();
 
-            // Fetch ALL transactions for this month
-            const { data: expenses, error: expenseError } = await supabase
-                .from('expenses')
-                .select('amount')
-                .eq('household_id', householdId)
-                // .gte('transaction_date', firstDay) // REMOVED: Fetch all history for cumulative balance
-                .lte('transaction_date', lastDay);
-
-            if (expenseError) console.error(expenseError);
-
-            let income = 0;
-            let expense = 0;
-
-            if (expenses) {
-                expenses.forEach(e => {
-                    if (e.amount < 0) {
-                        income += Math.abs(e.amount); // Convert neg to pos for summing
-                    } else {
-                        expense += e.amount;
-                    }
-                });
+            try {
+                const month = format(new Date(), 'yyyy-MM');
+                const summary = await apiClient.households.getSummary(householdId, month);
+                setTotalIncome(summary.totalIncome);
+                setTotalSpent(summary.totalSpent);
+            } catch (error) {
+                console.error('Failed to load summary:', error);
+                setTotalIncome(0);
+                setTotalSpent(0);
+            } finally {
+                setLoading(false);
             }
-
-            setTotalIncome(income);
-            setTotalSpent(expense);
-            setLoading(false);
         }
 
-        fetchSummary();
+        void fetchSummary();
     }, [householdId, lastUpdate]);
 
     if (loading) return <div>集計を読み込み中...</div>;
@@ -57,7 +41,6 @@ export default function DashboardSummary({ householdId, lastUpdate, onBalanceCli
     return (
         <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
             <div className="flex flex-col items-center">
-                {/* Main Balance Limit */}
                 <div
                     className="text-center cursor-pointer hover:scale-105 transition-transform"
                     onClick={onBalanceClick}

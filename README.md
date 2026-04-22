@@ -1,73 +1,38 @@
-# React + TypeScript + Vite
+# family-budget-app
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Cloudflare Pages Functions + D1 + R2 で動く家計簿アプリです。Supabase 依存は削除してあります。
 
-Currently, two official plugins are available:
+## 構成
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- フロントエンド: React + Vite
+- API: Cloudflare Pages Functions (`functions/api/*`)
+- DB: Cloudflare D1
+- レシート保存: Cloudflare R2
+- 認証: HttpOnly cookie session
 
-## React Compiler
+## Cloudflare 側で必要なもの
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. D1 データベースを 1 つ作成する
+2. `migrations/0001_cloudflare_bootstrap.sql` を適用する
+3. R2 バケットを 1 つ作成する
+4. Pages プロジェクトに以下の binding を追加する
 
-## Expanding the ESLint configuration
+- `DB`: D1 database
+- `RECEIPTS`: R2 bucket
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## デプロイ前提
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- Build command: `npm run build`
+- Build output directory: `dist`
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+GitHub 連携の Cloudflare Pages を使う場合でも、Functions の binding は Cloudflare ダッシュボード側で設定が必要です。
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## ローカル確認
+
+最低限のフロント build は以下です。
+
+```bash
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Pages Functions を含めたローカル動作確認は `wrangler pages dev` を使ってください。

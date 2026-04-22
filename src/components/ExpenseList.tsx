@@ -1,78 +1,56 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 import { Trash2 } from 'lucide-react';
-
-interface Expense {
-    id: string;
-    amount: number;
-    description: string;
-    transaction_date: string;
-    receipt_url?: string;
-    profiles: {
-        full_name: string;
-    };
-}
+import { apiClient, getErrorMessage } from '../lib/api-client';
+import type { LedgerExpense } from '../lib/api-types';
 
 interface ExpenseListProps {
     householdId: string;
-    lastUpdate: number; // Trigger to reload
+    lastUpdate: number;
 }
 
 export default function ExpenseList({ householdId, lastUpdate }: ExpenseListProps) {
-    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [expenses, setExpenses] = useState<LedgerExpense[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchExpenses() {
-            // ... (keep fetch logic, just hiding it for brevity in the tool call if possible, but I must provide full replacement or accurate range)
-            // Let's copy-paste the fetch logic to ensure safety.
             setLoading(true);
-            const { data, error } = await supabase
-                .from('expenses')
-                .select(`
-          id,
-          amount,
-          description,
-          transaction_date,
-          receipt_url,
-          profiles (
-            full_name
-          )
-        `)
-                .eq('household_id', householdId)
-                .order('transaction_date', { ascending: false });
-
-            if (error) {
+            try {
+                const { expenses: recentExpenses } = await apiClient.households.getRecentExpenses(householdId);
+                setExpenses(recentExpenses);
+            } catch (error) {
                 console.error('Error loading expenses:', error);
-            } else {
-                // @ts-expect-error Supabase result type mismatch
-                setExpenses(data || []);
+                setExpenses([]);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
         }
-        fetchExpenses();
+
+        void fetchExpenses();
     }, [householdId, lastUpdate]);
 
     const handleDelete = async (id: string) => {
-        if (!confirm('この支出を削除してもよろしいですか？')) return;
-        const { error } = await supabase.from('expenses').delete().eq('id', id);
-        if (!error) {
-            setExpenses(expenses.filter(e => e.id !== id));
+        if (!window.confirm('この支出を削除してもよろしいですか？')) return;
+
+        try {
+            await apiClient.expenses.delete(id);
+            setExpenses(expenses.filter((expense) => expense.id !== id));
+        } catch (error) {
+            alert(getErrorMessage(error, '支出の削除に失敗しました。'));
         }
     };
 
     if (loading) return <div className="text-gray-400 text-center py-12">履歴を読み込み中...</div>;
 
-    // Grouping Logic
-    const groupedExpenses = expenses.reduce((groups, expense) => {
-        const date = expense.transaction_date;
+    const groupedExpenses = expenses.reduce<Record<string, LedgerExpense[]>>((groups, expense) => {
+        const date = expense.transactionDate.split('T')[0];
         if (!groups[date]) {
             groups[date] = [];
         }
         groups[date].push(expense);
         return groups;
-    }, {} as Record<string, Expense[]>);
+    }, {});
 
     const sortedDates = Object.keys(groupedExpenses).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
@@ -95,14 +73,14 @@ export default function ExpenseList({ householdId, lastUpdate }: ExpenseListProp
                                     <li key={expense.id} className="hover:bg-gray-50 transition-colors duration-150 group">
                                         <div className="px-6 py-5 flex items-center justify-between">
                                             <div className="flex-1 min-w-0 pr-4">
-                                                <p className="text-base font-semibold text-gray-900 truncate mb-0.5">{expense.description}</p>
+                                                <p className="text-base font-semibold text-gray-900 truncate mb-0.5">{expense.description || '内容なし'}</p>
                                                 <div className="flex items-center text-xs text-gray-500 space-x-2">
                                                     <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
-                                                        {expense.profiles?.full_name}
+                                                        {expense.creatorName}
                                                     </span>
-                                                    {expense.receipt_url && (
+                                                    {expense.receiptUrl && (
                                                         <a
-                                                            href={expense.receipt_url}
+                                                            href={expense.receiptUrl}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="flex items-center text-gray-400 hover:text-indigo-600 transition-colors"
@@ -115,10 +93,10 @@ export default function ExpenseList({ householdId, lastUpdate }: ExpenseListProp
                                             </div>
                                             <div className="flex items-center space-x-4">
                                                 <span className="text-lg font-bold text-gray-800">
-                                                    -¥{expense.amount.toLocaleString()}
+                                                    {expense.amount < 0 ? '+' : '-'}¥{Math.abs(expense.amount).toLocaleString()}
                                                 </span>
                                                 <button
-                                                    onClick={() => handleDelete(expense.id)}
+                                                    onClick={() => void handleDelete(expense.id)}
                                                     className="text-gray-300 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50"
                                                     title="Delete expense"
                                                 >
