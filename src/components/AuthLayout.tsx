@@ -4,7 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 export default function AuthLayout() {
     const { session } = useAuth();
     const location = useLocation();
-    const from = location.state?.from?.pathname || "/";
+    const from = location.state?.from
+        ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
+        : "/";
 
     if (session) {
         return <Navigate to={from} replace />;

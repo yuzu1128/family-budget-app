@@ -1,14 +1,18 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { PieChart } from 'lucide-react';
 
 export default function Login() {
     const location = useLocation();
+    const navigate = useNavigate();
     const [userId, setUserId] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const from = location.state?.from
+        ? `${location.state.from.pathname || ''}${location.state.from.search || ''}${location.state.from.hash || ''}`
+        : '/';
 
     const DUMMY_DOMAIN = '@familybudget.com';
 
@@ -19,13 +23,15 @@ export default function Login() {
 
         const email = `${userId}${DUMMY_DOMAIN}`;
 
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
             email,
             password,
         });
 
         if (error) {
             setError(error.message);
+        } else if (data.session) {
+            navigate(from, { replace: true });
         }
         setLoading(false);
     };

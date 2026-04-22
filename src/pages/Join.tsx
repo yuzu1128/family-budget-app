@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { useHousehold } from '../contexts/HouseholdContext';
 import { Users, AlertCircle } from 'lucide-react';
 
 export default function Join() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { refreshHouseholds, setCurrentHouseholdId } = useHousehold();
     const token = searchParams.get('token');
 
     const [householdName, setHouseholdName] = useState<string | null>(null);
@@ -54,7 +56,8 @@ export default function Join() {
                 .single();
 
             if (existing) {
-                // Already member, just redirect
+                await refreshHouseholds();
+                setCurrentHouseholdId(token);
                 navigate('/');
                 return;
             }
@@ -69,6 +72,8 @@ export default function Join() {
 
             if (error) throw error;
 
+            await refreshHouseholds();
+            setCurrentHouseholdId(token);
             navigate('/');
 
         } catch (err: unknown) {
