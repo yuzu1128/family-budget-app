@@ -33,6 +33,14 @@ export interface HouseholdSummary {
 export interface JoinPreview {
     id: string;
     name: string;
+    expiresAt?: string;
+}
+
+export interface InviteLink {
+    householdId: string;
+    householdName: string;
+    token: string;
+    expiresAt: string;
 }
 
 export interface LedgerExpense {

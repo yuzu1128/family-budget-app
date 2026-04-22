@@ -23,22 +23,30 @@ export const onRequestPatch: PagesFunction<AppEnv> = async (context) => {
         }
 
         const receipt = formData.get('receipt');
-        const receiptKey = receipt instanceof File && receipt.size > 0
+        const uploadedReceiptKey = receipt instanceof File && receipt.size > 0
             ? await putReceipt(context.env, expense.household_id, expenseId, receipt)
-            : expense.receipt_key;
+            : null;
+        const nextReceiptKey = uploadedReceiptKey ?? expense.receipt_key;
 
-        if (receipt instanceof File && receipt.size > 0 && expense.receipt_key && expense.receipt_key !== receiptKey) {
-            await deleteReceipt(context.env, expense.receipt_key);
+        try {
+            await getDb(context.env)
+                .prepare(`
+                    UPDATE expenses
+                    SET amount = ?, description = ?, transaction_date = ?, receipt_key = ?, updated_at = ?
+                    WHERE id = ?
+                `)
+                .bind(amount, description, transactionDate, nextReceiptKey, new Date().toISOString(), expenseId)
+                .run();
+        } catch (error) {
+            if (uploadedReceiptKey && uploadedReceiptKey !== expense.receipt_key) {
+                await deleteReceipt(context.env, uploadedReceiptKey);
+            }
+            throw error;
         }
 
-        await getDb(context.env)
-            .prepare(`
-                UPDATE expenses
-                SET amount = ?, description = ?, transaction_date = ?, receipt_key = ?, updated_at = ?
-                WHERE id = ?
-            `)
-            .bind(amount, description, transactionDate, receiptKey, new Date().toISOString(), expenseId)
-            .run();
+        if (uploadedReceiptKey && expense.receipt_key && expense.receipt_key !== uploadedReceiptKey) {
+            await deleteReceipt(context.env, expense.receipt_key);
+        }
 
         const row = await getDb(context.env)
             .prepare(`

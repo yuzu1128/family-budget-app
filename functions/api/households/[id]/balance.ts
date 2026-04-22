@@ -18,8 +18,8 @@ export const onRequestPost: PagesFunction<AppEnv> = async (context) => {
         if (mode === 'add') {
             await getDb(context.env)
                 .prepare(`
-                    INSERT INTO expenses (id, household_id, created_by, amount, description, transaction_date, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO expenses (id, household_id, created_by, amount, description, transaction_date, created_at, updated_at, entry_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'balance_adjustment')
                 `)
                 .bind(
                     crypto.randomUUID(),
@@ -37,7 +37,7 @@ export const onRequestPost: PagesFunction<AppEnv> = async (context) => {
                 .prepare(`
                     DELETE FROM expenses
                     WHERE household_id = ?
-                      AND description IN ('月次予算', '資産初期残高', '残高追加')
+                      AND entry_type = 'balance_adjustment'
                 `)
                 .bind(householdId)
                 .run();
@@ -57,8 +57,8 @@ export const onRequestPost: PagesFunction<AppEnv> = async (context) => {
 
             await getDb(context.env)
                 .prepare(`
-                    INSERT INTO expenses (id, household_id, created_by, amount, description, transaction_date, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO expenses (id, household_id, created_by, amount, description, transaction_date, created_at, updated_at, entry_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'balance_adjustment')
                 `)
                 .bind(
                     crypto.randomUUID(),

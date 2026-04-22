@@ -5,7 +5,14 @@ import QRCode from 'react-qr-code';
 import { useAuth } from '../contexts/AuthContext';
 import { useHousehold } from '../contexts/HouseholdContext';
 import { apiClient, getErrorMessage } from '../lib/api-client';
-import type { HouseholdMembership } from '../lib/api-types';
+import type { HouseholdMembership, InviteLink } from '../lib/api-types';
+
+interface InviteDialogState {
+    householdId: string;
+    householdName: string;
+    inviteUrl: string | null;
+    expiresAt: string | null;
+}
 
 export default function Settings() {
     const { user, signOut } = useAuth();
@@ -17,7 +24,8 @@ export default function Settings() {
     const [isCreating, setIsCreating] = useState(false);
     const [newHouseholdName, setNewHouseholdName] = useState('');
     const [editingHousehold, setEditingHousehold] = useState<{ id: string; name: string } | null>(null);
-    const [invitingHousehold, setInvitingHousehold] = useState<{ id: string; name: string } | null>(null);
+    const [invitingHousehold, setInvitingHousehold] = useState<InviteDialogState | null>(null);
+    const [inviteLoadingId, setInviteLoadingId] = useState<string | null>(null);
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -75,20 +83,81 @@ export default function Settings() {
             await apiClient.households.update(id, { isArchived: archive });
             await fetchData();
             await refreshHouseholds();
-
-            if (archive && currentHouseholdId === id) {
-                setCurrentHouseholdId(null);
-            }
         } catch (archiveError) {
             setError(getErrorMessage(archiveError, archive ? 'アーカイブに失敗しました。' : '復元に失敗しました。'));
         }
     };
 
-    const handleCopy = (id: string) => {
-        const url = `${window.location.origin}/join?token=${id}`;
-        void navigator.clipboard.writeText(url);
-        setCopiedId(id);
-        window.setTimeout(() => setCopiedId(null), 2000);
+    const buildInviteUrl = useCallback((invite: InviteLink) => (
+        `${window.location.origin}/join?token=${invite.token}`
+    ), []);
+
+    const createInvite = useCallback(async (householdId: string) => {
+        const { invite } = await apiClient.households.createInvite(householdId);
+        return {
+            inviteUrl: buildInviteUrl(invite),
+            expiresAt: invite.expiresAt,
+        };
+    }, [buildInviteUrl]);
+
+    const openInviteModal = async (membership: HouseholdMembership) => {
+        setInviteLoadingId(membership.householdId);
+        setInvitingHousehold({
+            householdId: membership.householdId,
+            householdName: membership.household.name,
+            inviteUrl: null,
+            expiresAt: null,
+        });
+
+        try {
+            const invite = await createInvite(membership.householdId);
+            setInvitingHousehold({
+                householdId: membership.householdId,
+                householdName: membership.household.name,
+                inviteUrl: invite.inviteUrl,
+                expiresAt: invite.expiresAt,
+            });
+            setError(null);
+        } catch (inviteError) {
+            setInvitingHousehold(null);
+            setError(getErrorMessage(inviteError, '招待リンクの発行に失敗しました。'));
+        } finally {
+            setInviteLoadingId(null);
+        }
+    };
+
+    const handleCopy = async (householdId: string, inviteUrl?: string | null) => {
+        setInviteLoadingId(householdId);
+
+        try {
+            const invite = inviteUrl
+                ? {
+                    inviteUrl,
+                    expiresAt: invitingHousehold?.householdId === householdId ? invitingHousehold.expiresAt : null,
+                }
+                : await createInvite(householdId);
+
+            await navigator.clipboard.writeText(invite.inviteUrl);
+            setCopiedId(householdId);
+            window.setTimeout(() => setCopiedId(null), 2000);
+            setError(null);
+
+            setInvitingHousehold((current) => {
+                if (!current || current.householdId !== householdId) {
+                    return current;
+                }
+
+                return {
+                    ...current,
+                    inviteUrl: invite.inviteUrl,
+                    expiresAt: invite.expiresAt ?? current.expiresAt,
+                };
+            });
+        } catch (inviteError) {
+            setError(getErrorMessage(inviteError, '招待リンクのコピーに失敗しました。'));
+        } finally {
+            setInviteLoadingId(null);
+        }
     };
 
     if (loading && households.length === 0) return <div className="p-10 text-center text-gray-500">読み込み中...</div>;
@@ -135,7 +204,12 @@ export default function Settings() {
                                         </p>
                                     </div>
                                     <div className="flex space-x-1">
-                                        <button onClick={() => setInvitingHousehold({ id: membership.householdId, name: membership.household.name })} className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="家族を招待">
+                                        <button
+                                            onClick={() => void openInviteModal(membership)}
+                                            disabled={inviteLoadingId === membership.householdId}
+                                            className="p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
+                                            title="家族を招待"
+                                        >
                                             <Share2 className="h-4 w-4" />
                                         </button>
                                         {membership.role === 'owner' && (
@@ -160,8 +234,9 @@ export default function Settings() {
                                         {currentHouseholdId === membership.householdId ? '表示中' : 'この家計簿に切り替え'}
                                     </button>
                                     <button
-                                        onClick={() => handleCopy(membership.householdId)}
-                                        className={`p-2.5 rounded-xl transition-all ${copiedId === membership.householdId ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400 hover:text-gray-600'}`}
+                                        onClick={() => void handleCopy(membership.householdId)}
+                                        disabled={inviteLoadingId === membership.householdId}
+                                        className={`p-2.5 rounded-xl transition-all disabled:opacity-50 ${copiedId === membership.householdId ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400 hover:text-gray-600'}`}
                                         title="招待リンクをコピー"
                                     >
                                         {copiedId === membership.householdId ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -264,22 +339,35 @@ export default function Settings() {
                                 <Share2 className="h-6 w-6 text-indigo-600" />
                             </div>
                             <h3 className="text-xl font-black text-gray-900 mb-1 tracking-tight">家族を招待</h3>
-                            <p className="text-sm text-gray-500 mb-8 text-center">「{invitingHousehold.name}」にメンバーを追加します</p>
+                            <p className="text-sm text-gray-500 mb-4 text-center">「{invitingHousehold.householdName}」にメンバーを追加します</p>
+                            <p className="text-xs text-gray-400 mb-8 text-center">新しい招待リンクを発行すると、前のリンクは無効になります。</p>
 
-                            <div className="bg-white p-4 rounded-3xl shadow-xl border border-gray-100 mb-8">
-                                <QRCode value={`${window.location.origin}/join?token=${invitingHousehold.id}`} size={180} />
-                            </div>
+                            {invitingHousehold.inviteUrl ? (
+                                <>
+                                    <div className="bg-white p-4 rounded-3xl shadow-xl border border-gray-100 mb-6">
+                                        <QRCode value={invitingHousehold.inviteUrl} size={180} />
+                                    </div>
 
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-3">招待リンクを共有</p>
-                            <button
-                                onClick={() => handleCopy(invitingHousehold.id)}
-                                className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${copiedId === invitingHousehold.id ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-100 bg-gray-50 text-gray-600 hover:border-indigo-100'}`}
-                            >
-                                <span className="text-xs font-bold truncate mr-2">
-                                    {window.location.origin}/join?token={invitingHousehold.id}
-                                </span>
-                                {copiedId === invitingHousehold.id ? <Check className="h-5 w-5 flex-shrink-0" /> : <Copy className="h-5 w-5 flex-shrink-0" />}
-                            </button>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-3">招待リンクを共有</p>
+                                    <button
+                                        onClick={() => void handleCopy(invitingHousehold.householdId, invitingHousehold.inviteUrl)}
+                                        disabled={inviteLoadingId === invitingHousehold.householdId}
+                                        className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl border-2 transition-all active:scale-[0.98] disabled:opacity-50 ${copiedId === invitingHousehold.householdId ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-100 bg-gray-50 text-gray-600 hover:border-indigo-100'}`}
+                                    >
+                                        <span className="text-xs font-bold truncate mr-2">
+                                            {invitingHousehold.inviteUrl}
+                                        </span>
+                                        {copiedId === invitingHousehold.householdId ? <Check className="h-5 w-5 flex-shrink-0" /> : <Copy className="h-5 w-5 flex-shrink-0" />}
+                                    </button>
+                                    {invitingHousehold.expiresAt && (
+                                        <p className="mt-3 text-xs text-gray-400 text-center">
+                                            有効期限: {new Date(invitingHousehold.expiresAt).toLocaleString('ja-JP')}
+                                        </p>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="py-12 text-sm text-gray-400">招待リンクを発行中...</div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -2,6 +2,7 @@ import type {
     AppUser,
     HouseholdListResponse,
     HouseholdSummary,
+    InviteLink,
     JoinPreview,
     LedgerExpense,
     LedgerResponse,
@@ -30,6 +31,10 @@ interface HouseholdResponse {
 
 interface JoinResponse {
     household: JoinPreview;
+}
+
+interface InviteResponse {
+    invite: InviteLink;
 }
 
 interface ExpenseResponse {
@@ -141,8 +146,14 @@ export const apiClient = {
         getInvite(token: string) {
             return apiRequest<JoinResponse>(`/api/households/invite?token=${encodeURIComponent(token)}`);
         },
-        join(householdId: string) {
-            return apiRequest<HouseholdResponse>(`/api/households/${householdId}/join`, {
+        createInvite(householdId: string) {
+            return apiRequest<InviteResponse>('/api/households/invite', {
+                method: 'POST',
+                json: { householdId },
+            });
+        },
+        join(token: string) {
+            return apiRequest<HouseholdResponse>(`/api/households/${encodeURIComponent(token)}/join`, {
                 method: 'POST',
             });
         },

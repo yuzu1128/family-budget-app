@@ -19,6 +19,15 @@ interface SessionRow {
     email: string | null;
 }
 
+interface InviteRow {
+    id: string;
+    household_id: string;
+    household_name: string;
+    expires_at: string;
+    revoked_at: string | null;
+    is_archived: number;
+}
+
 const SESSION_COOKIE = 'fb_session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 const PASSWORD_ITERATIONS = 100_000;
@@ -107,6 +116,10 @@ function randomBytes(length: number) {
 
 function bytesToHex(bytes: Uint8Array) {
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function createOpaqueToken(length = 24) {
+    return bytesToHex(randomBytes(length));
 }
 
 function hexToBytes(hex: string) {
@@ -255,6 +268,39 @@ export async function requireHouseholdOwner(env: AppEnv, householdId: string, us
     return role;
 }
 
+export async function getActiveInvite(env: AppEnv, token: string) {
+    const invite = await getDb(env)
+        .prepare(`
+            SELECT hi.id, hi.household_id, hi.expires_at, hi.revoked_at,
+                   h.name AS household_name, h.is_archived
+            FROM household_invites hi
+            JOIN households h ON h.id = hi.household_id
+            WHERE hi.token = ?
+            LIMIT 1
+        `)
+        .bind(token)
+        .first<InviteRow>();
+
+    if (!invite || invite.revoked_at) {
+        throw new HttpError(404, '招待リンクが見つかりませんでした。');
+    }
+
+    if (invite.is_archived) {
+        throw new HttpError(409, 'この家計簿は現在アーカイブされています。');
+    }
+
+    if (invite.expires_at <= new Date().toISOString()) {
+        throw new HttpError(410, '招待リンクの有効期限が切れています。');
+    }
+
+    return {
+        id: invite.id,
+        householdId: invite.household_id,
+        householdName: invite.household_name,
+        expiresAt: invite.expires_at,
+    };
+}
+
 export function parseMonthKey(month: string | null) {
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
         throw new HttpError(400, 'Invalid month. Expected format: YYYY-MM');
@@ -301,7 +347,7 @@ export async function putReceipt(env: AppEnv, householdId: string, expenseId: st
         throw new HttpError(503, 'R2 binding `RECEIPTS` is missing.');
     }
 
-    const key = `${householdId}/${expenseId}.${sanitizeFileName(file.name)}`;
+    const key = `${householdId}/${expenseId}/${crypto.randomUUID()}.${sanitizeFileName(file.name)}`;
     await env.RECEIPTS.put(key, await file.arrayBuffer(), {
         httpMetadata: {
             contentType: file.type || 'application/octet-stream',
