@@ -61,8 +61,6 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             }
         } catch (error) {
             console.error('Failed to fetch households:', error);
-            setMemberships([]);
-            setCurrentHouseholdIdState(null);
         } finally {
             setIsLoading(false);
         }

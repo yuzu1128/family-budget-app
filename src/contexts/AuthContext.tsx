@@ -62,11 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const signOut = useCallback(async () => {
         try {
             await apiClient.auth.logout();
+            setUser(null);
+            setError(null);
         } catch (signOutError) {
             console.error('Sign-out failed:', signOutError);
             setError(getErrorMessage(signOutError, 'ログアウトに失敗しました。'));
-        } finally {
-            setUser(null);
         }
     }, []);
 

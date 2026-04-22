@@ -5,19 +5,50 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const onRequestGet: PagesFunction<AppEnv> = async (context) => {
     try {
-        const token = new URL(context.request.url).searchParams.get('token');
-        if (!token) {
+        const url = new URL(context.request.url);
+        const token = url.searchParams.get('token');
+        const householdId = url.searchParams.get('householdId');
+
+        if (token) {
+            const invite = await getActiveInvite(context.env, token);
+
+            return json({
+                household: {
+                    id: invite.householdId,
+                    name: invite.householdName,
+                    expiresAt: invite.expiresAt,
+                },
+            });
+        }
+
+        if (!householdId) {
             throw new HttpError(400, '無効な招待リンクです。');
         }
 
-        const invite = await getActiveInvite(context.env, token);
+        const user = await requireUser(context.env, context.request);
+        await requireHouseholdMembership(context.env, householdId, user.id);
+
+        const invite = await getDb(context.env)
+            .prepare(`
+                SELECT hi.token, hi.expires_at, h.name AS household_name
+                FROM household_invites hi
+                JOIN households h ON h.id = hi.household_id
+                WHERE hi.household_id = ?
+                  AND hi.revoked_at IS NULL
+                  AND hi.expires_at > ?
+                ORDER BY hi.created_at DESC
+                LIMIT 1
+            `)
+            .bind(householdId, new Date().toISOString())
+            .first<{ token: string; expires_at: string; household_name: string }>();
 
         return json({
-            household: {
-                id: invite.householdId,
-                name: invite.householdName,
-                expiresAt: invite.expiresAt,
-            },
+            invite: invite ? {
+                householdId,
+                householdName: invite.household_name,
+                token: invite.token,
+                expiresAt: invite.expires_at,
+            } : null,
         });
     } catch (error) {
         return errorResponse(error);

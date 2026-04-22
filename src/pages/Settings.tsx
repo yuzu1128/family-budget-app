@@ -92,8 +92,23 @@ export default function Settings() {
         `${window.location.origin}/join?token=${invite.token}`
     ), []);
 
+    const readCurrentInvite = useCallback(async (householdId: string) => {
+        const { invite } = await apiClient.households.getCurrentInvite(householdId);
+        if (!invite) {
+            return null;
+        }
+
+        return {
+            inviteUrl: buildInviteUrl(invite),
+            expiresAt: invite.expiresAt,
+        };
+    }, [buildInviteUrl]);
+
     const createInvite = useCallback(async (householdId: string) => {
         const { invite } = await apiClient.households.createInvite(householdId);
+        if (!invite) {
+            throw new Error('招待リンクを発行できませんでした。');
+        }
         return {
             inviteUrl: buildInviteUrl(invite),
             expiresAt: invite.expiresAt,
@@ -110,16 +125,41 @@ export default function Settings() {
         });
 
         try {
-            const invite = await createInvite(membership.householdId);
+            const invite = await readCurrentInvite(membership.householdId);
             setInvitingHousehold({
                 householdId: membership.householdId,
                 householdName: membership.household.name,
-                inviteUrl: invite.inviteUrl,
-                expiresAt: invite.expiresAt,
+                inviteUrl: invite?.inviteUrl ?? null,
+                expiresAt: invite?.expiresAt ?? null,
             });
             setError(null);
         } catch (inviteError) {
             setInvitingHousehold(null);
+            setError(getErrorMessage(inviteError, '招待リンクの取得に失敗しました。'));
+        } finally {
+            setInviteLoadingId(null);
+        }
+    };
+
+    const handleGenerateInvite = async (householdId: string) => {
+        setInviteLoadingId(householdId);
+
+        try {
+            const invite = await createInvite(householdId);
+            setError(null);
+
+            setInvitingHousehold((current) => {
+                if (!current || current.householdId !== householdId) {
+                    return current;
+                }
+
+                return {
+                    ...current,
+                    inviteUrl: invite.inviteUrl,
+                    expiresAt: invite.expiresAt,
+                };
+            });
+        } catch (inviteError) {
             setError(getErrorMessage(inviteError, '招待リンクの発行に失敗しました。'));
         } finally {
             setInviteLoadingId(null);
@@ -130,14 +170,17 @@ export default function Settings() {
         setInviteLoadingId(householdId);
 
         try {
-            const invite = inviteUrl
-                ? {
-                    inviteUrl,
-                    expiresAt: invitingHousehold?.householdId === householdId ? invitingHousehold.expiresAt : null,
-                }
-                : await createInvite(householdId);
+            let resolvedInviteUrl = inviteUrl ?? null;
+            let resolvedExpiresAt = invitingHousehold?.householdId === householdId ? invitingHousehold.expiresAt : null;
 
-            await navigator.clipboard.writeText(invite.inviteUrl);
+            if (!resolvedInviteUrl) {
+                const existingInvite = await readCurrentInvite(householdId);
+                const invite = existingInvite ?? await createInvite(householdId);
+                resolvedInviteUrl = invite.inviteUrl;
+                resolvedExpiresAt = invite.expiresAt;
+            }
+
+            await navigator.clipboard.writeText(resolvedInviteUrl);
             setCopiedId(householdId);
             window.setTimeout(() => setCopiedId(null), 2000);
             setError(null);
@@ -149,8 +192,8 @@ export default function Settings() {
 
                 return {
                     ...current,
-                    inviteUrl: invite.inviteUrl,
-                    expiresAt: invite.expiresAt ?? current.expiresAt,
+                    inviteUrl: resolvedInviteUrl,
+                    expiresAt: resolvedExpiresAt ?? current.expiresAt,
                 };
             });
         } catch (inviteError) {
@@ -340,7 +383,7 @@ export default function Settings() {
                             </div>
                             <h3 className="text-xl font-black text-gray-900 mb-1 tracking-tight">家族を招待</h3>
                             <p className="text-sm text-gray-500 mb-4 text-center">「{invitingHousehold.householdName}」にメンバーを追加します</p>
-                            <p className="text-xs text-gray-400 mb-8 text-center">新しい招待リンクを発行すると、前のリンクは無効になります。</p>
+                            <p className="text-xs text-gray-400 mb-8 text-center">再発行すると、前のリンクは無効になります。</p>
 
                             {invitingHousehold.inviteUrl ? (
                                 <>
@@ -364,9 +407,25 @@ export default function Settings() {
                                             有効期限: {new Date(invitingHousehold.expiresAt).toLocaleString('ja-JP')}
                                         </p>
                                     )}
+                                    <button
+                                        onClick={() => void handleGenerateInvite(invitingHousehold.householdId)}
+                                        disabled={inviteLoadingId === invitingHousehold.householdId}
+                                        className="mt-4 w-full rounded-2xl border border-indigo-100 bg-indigo-50 px-5 py-3 text-sm font-bold text-indigo-700 transition-all hover:bg-indigo-100 disabled:opacity-50"
+                                    >
+                                        新しい招待リンクを再発行
+                                    </button>
                                 </>
                             ) : (
-                                <div className="py-12 text-sm text-gray-400">招待リンクを発行中...</div>
+                                <div className="w-full">
+                                    <div className="py-8 text-sm text-gray-400 text-center">有効な招待リンクはまだ発行されていません。</div>
+                                    <button
+                                        onClick={() => void handleGenerateInvite(invitingHousehold.householdId)}
+                                        disabled={inviteLoadingId === invitingHousehold.householdId}
+                                        className="w-full rounded-2xl bg-indigo-600 px-5 py-4 text-sm font-bold text-white transition-all hover:bg-indigo-700 disabled:opacity-50"
+                                    >
+                                        招待リンクを発行
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </div>

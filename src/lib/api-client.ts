@@ -34,7 +34,7 @@ interface JoinResponse {
 }
 
 interface InviteResponse {
-    invite: InviteLink;
+    invite: InviteLink | null;
 }
 
 interface ExpenseResponse {
@@ -145,6 +145,9 @@ export const apiClient = {
         },
         getInvite(token: string) {
             return apiRequest<JoinResponse>(`/api/households/invite?token=${encodeURIComponent(token)}`);
+        },
+        getCurrentInvite(householdId: string) {
+            return apiRequest<InviteResponse>(`/api/households/invite?householdId=${encodeURIComponent(householdId)}`);
         },
         createInvite(householdId: string) {
             return apiRequest<InviteResponse>('/api/households/invite', {
