@@ -2,17 +2,21 @@ export interface AppUser {
     id: string;
     userId: string;
     fullName: string;
+    email?: string | null;
 }
 
 export interface AppEnv {
     DB: D1Database;
     RECEIPTS?: R2Bucket;
+    LEGACY_SUPABASE_URL?: string;
+    LEGACY_SUPABASE_PUBLISHABLE_KEY?: string;
 }
 
 interface SessionRow {
     user_id: string;
     userId: string;
     full_name: string;
+    email: string | null;
 }
 
 const SESSION_COOKIE = 'fb_session';
@@ -194,7 +198,7 @@ export async function getSessionUser(env: AppEnv, request: Request) {
     const now = new Date().toISOString();
     const row = await getDb(env)
         .prepare(`
-            SELECT users.id AS user_id, users.user_id AS userId, users.full_name
+            SELECT users.id AS user_id, users.user_id AS userId, users.full_name, users.email
             FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ? AND sessions.expires_at > ?
@@ -211,6 +215,7 @@ export async function getSessionUser(env: AppEnv, request: Request) {
         id: row.user_id,
         userId: row.userId,
         fullName: row.full_name,
+        email: row.email,
     } satisfies AppUser;
 }
 

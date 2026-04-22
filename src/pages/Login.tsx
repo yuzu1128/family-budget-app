@@ -8,7 +8,7 @@ export default function Login() {
     const location = useLocation();
     const navigate = useNavigate();
     const { signIn } = useAuth();
-    const [userId, setUserId] = useState('');
+    const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -22,7 +22,7 @@ export default function Login() {
         setError(null);
 
         try {
-            await signIn(userId, password);
+            await signIn(identifier, password);
             navigate(from, { replace: true });
         } catch (loginError) {
             setError(getErrorMessage(loginError, 'ログインに失敗しました。'));
@@ -33,8 +33,8 @@ export default function Login() {
 
     const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        if (/^[a-zA-Z0-9]*$/.test(val)) {
-            setUserId(val);
+        if (/^[a-zA-Z0-9@._+-]*$/.test(val)) {
+            setIdentifier(val);
         }
     };
 
@@ -78,7 +78,7 @@ export default function Login() {
                                     name="userId"
                                     type="text"
                                     required
-                                    value={userId}
+                                    value={identifier}
                                     onChange={handleIdChange}
                                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-shadow"
                                     placeholder="例: tarou"

@@ -39,10 +39,10 @@ export const onRequestPost: PagesFunction<AppEnv> = async (context) => {
 
         await getDb(context.env)
             .prepare(`
-                INSERT INTO users (id, user_id, full_name, password_hash, password_salt, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (id, user_id, email, full_name, password_hash, password_salt, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `)
-            .bind(user.id, user.userId, user.fullName, passwordData.hash, passwordData.salt, user.createdAt)
+            .bind(user.id, user.userId, null, user.fullName, passwordData.hash, passwordData.salt, user.createdAt)
             .run();
 
         const sessionToken = await createSession(context.env, user.id);

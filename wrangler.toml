@@ -3,6 +3,22 @@ name = "family-budget-app"
 pages_build_output_dir = "./dist"
 compatibility_date = "2026-04-22"
 
+[env.production.vars]
+LEGACY_SUPABASE_URL = "https://kzqtvqccaixjxwfklntu.supabase.co"
+LEGACY_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2EnRsPd5avunyncTVCEufA_yMLCv20P"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "family-budget-app"
+database_id = "ad522aa0-3103-4b10-b856-9dfd961a2b9e"
+preview_database_id = "ad522aa0-3103-4b10-b856-9dfd961a2b9e"
+migrations_dir = "migrations"
+
+[[env.production.r2_buckets]]
+binding = "RECEIPTS"
+bucket_name = "family-budget-app-receipts"
+preview_bucket_name = "family-budget-app-receipts"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "family-budget-app"
@@ -26,3 +42,7 @@ migrations_dir = "migrations"
 binding = "RECEIPTS"
 bucket_name = "family-budget-app-preview-receipts"
 preview_bucket_name = "family-budget-app-preview-receipts"
+
+[env.preview.vars]
+LEGACY_SUPABASE_URL = "https://kzqtvqccaixjxwfklntu.supabase.co"
+LEGACY_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_2EnRsPd5avunyncTVCEufA_yMLCv20P"

@@ -103,10 +103,10 @@ export const apiClient = {
         getSession() {
             return apiRequest<SessionResponse>('/api/auth/session');
         },
-        login(userId: string, password: string) {
+        login(identifier: string, password: string) {
             return apiRequest<UserResponse>('/api/auth/login', {
                 method: 'POST',
-                json: { userId, password },
+                json: { identifier, password },
             });
         },
         register(userId: string, password: string, fullName: string) {
